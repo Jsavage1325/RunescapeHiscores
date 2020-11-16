@@ -5,6 +5,8 @@ import dash_core_components as dcc
 import dash_html_components as html
 import requests
 from dash.dependencies import Input, Output, State
+import time
+import dash_table
 from flask import jsonify
 
 app = dash.Dash()
@@ -14,6 +16,7 @@ colors = {
     'text': '#7FDBFF'
 }
 
+# the first 23 are both osrs and rs3 the last ones are just rs3
 level_names = {
     0: 'Attack',
     1: 'Defence',
@@ -35,7 +38,7 @@ level_names = {
     17: 'Thieving',
     18: 'Slayer',
     19: 'Farming',
-    20: 'Runescrafting',
+    20: 'Runecrafting',
     21: 'Hunter',
     22: 'Construction',
     23: 'Summoning',
@@ -55,22 +58,36 @@ app.layout = html.Div(style={'backgroundColor': colors['background']}, children=
     ),
     html.Div(children='A web app to display and compare user stats using some cool graphics.', style={
         'textAlign': 'center',
-        'color': colors['text']
+        'color': colors['text'],
+        'padding': '5px'
     }),
     html.Div(style={
-        'textAlign': 'center',
+        'text-align': 'center',
         'color': colors['text'],
+        'width': '30%',
+        'padding': '3px',
+        'border': '3px solid white',
+        'margin': 'auto',
+        'align': 'center'
     }, children=[
-        html.Button('Get User', id='search_button', style={
-            'align': 'center'
+        html.Button('GET USER', id='search_button', style={
+            'align': 'center',
+            'padding': '3px',
+            'textColor': '#FFFFFF'
         }),
         dcc.Input(
             id='name1',
             placeholder='Enter name',
+            style={
+                'padding': '3px'
+            }
         ),
         dcc.Input(
             id='name2',
             placeholder='Enter name',
+            style={
+                'padding': '3px'
+            }
         ),
         dcc.Dropdown(
             id='data_type',
@@ -78,7 +95,10 @@ app.layout = html.Div(style={'backgroundColor': colors['background']}, children=
                 {'label': 'Level', 'value': 'level'},
                 {'label': 'Experience', 'value': 'xp'}
             ],
-            value='level'
+            value='level',
+            style={
+                'padding': '3px'
+            }
         ),
         dcc.Dropdown(
             id='graph_type',
@@ -86,7 +106,33 @@ app.layout = html.Div(style={'backgroundColor': colors['background']}, children=
                 {'label': 'Bar', 'value': 'bar'},
                 {'label': 'Scatter', 'value': 'scatter'}
             ],
-            value='bar'
+            value='bar',
+            style={
+                'padding': '3px'
+            }
+        ),
+        dcc.Dropdown(
+            id='game_type',
+            options=[
+                {'label': 'OSRS', 'value': 'osrs'},
+                {'label': 'RS3', 'value': 'rs3'}
+            ],
+            value='osrs',
+            style={
+                'padding': '3px'
+            }
+        ),
+        dcc.Dropdown(
+            id='game_mode',
+            options=[
+                {'label': 'Normal', 'value': 'normal'},
+                {'label': 'Ironman', 'value': 'ironman'},
+                {'label': 'Ultimate Ironman', 'value': 'ultimate_ironman'}
+            ],
+            value='normal',
+            style={
+                'padding': '3px'
+            }
         ),
         html.Div(
             "",
@@ -94,53 +140,114 @@ app.layout = html.Div(style={'backgroundColor': colors['background']}, children=
             # if we put the graph inside here we can update the title first
         )
     ]),
-    dcc.Graph(
-        id='graph',
-        figure={
-            'data': [
-            ],
-            'layout': {
-                'plot_bgcolor': colors['background'],
-                'paper_bgcolor': colors['background'],
-                'font': {
-                    'color': colors['text']
+    html.Div(id='graph-div', children=[
+        dcc.Graph(
+            id='graph',
+            figure={
+                'data': [
+                ],
+                'layout': {
+                    'plot_bgcolor': colors['background'],
+                    'paper_bgcolor': colors['background'],
+                    'font': {
+                        'color': colors['text']
+                    }
                 }
             }
-        }
-    )
+        ),
+        # ToDo add a table below displaying the players data
+        # dash_table.DataTable(
+        #     id='table',
+        #     columns=[{"Skills", "Level", "Experience"}],
+        # )
+    ]),
+
 ])
 
 
-# A call back which get the value from the
+# A call back which get the value from the text boxes, calls the rs API's converts the data and returns them as graphs
+# ToDo make graph element invisible if empty
 @app.callback(
-    Output('graph', 'figure'),
+    [Output('graph', 'figure'),
+     Output('graph-div', 'style')],
     [Input('search_button', 'n_clicks')],
-    [State('name1', 'value'), State('name2', 'value'), State('data_type', 'value'), State('graph_type', 'value')])
-def on_click(search_button, name1, name2, data_type, graph_type):
-    # print("Name: {}").format(Name)
-    score = get_highscore(name1)
+    [State('name1', 'value'), State('name2', 'value'), State('data_type', 'value'), State('graph_type', 'value'),
+     State('game_type', 'value'), State('game_mode', 'value')])
+def on_click(search_button, name1, name2, data_type, graph_type, game_type, game_mode):
+    graph_type = "table"
+    score = get_highscore(name1, game_type, game_mode)
     if name2:
-        score2 = get_highscore(name2)
+        score2 = get_highscore(name2, game_type, game_mode)
     else:
         score2 = None
     if not score2:
-        return gen_level_graph(name1, score, None, None, data_type, graph_type)
+        g, success = gen_level_graph(name1, score, None, None, data_type, graph_type, game_type, game_mode)
+        if success:
+            return g, {'display': 'block'}
+        else:
+            return g, {'display': 'none'}
     elif score2:
-        return gen_level_graph(name1, score, name2, score2, data_type, graph_type)
+        g, success = gen_level_graph(name1, score, name2, score2, data_type, graph_type, game_type, game_mode)
+        if success:
+            return g, {'display':'block'}
+        else:
+            return g, {'display':'none'}
     # instead of returning a div, we want to return a dcc.Graph
 
 
-def get_highscore(name):
-    if name:
-        response = requests.get(
-            "https://apps.runescape.com/runemetrics/profile/profile?user=" + name + "&activities=20")
-        try:
-            if json.loads(response.text)['skillvalues']:
-                hiscore = json.loads(response.text)["skillvalues"]
+def get_highscore(name, game, game_mode):
+    if game == "rs3":
+        if name:
+            start = time.time()
+            middle = ""
+            if game_mode == "ironman" or "hardcore_ironman":
+                middle = "_ironman"
+            elif game_mode == "ultimate_ironman":
+                middle = "_ultimate_ironman"
+            response = requests.get(
+                "http://services.runescape.com/m=hiscore" + middle + "/index_lite.ws?player=" + str(name))
+            print("took: " + str(time.time() - start) + " seconds")
+            content = str(response.content)
+            content = content.split("\\n")
+            content[0] = content[0][2:]
+            # stored as rank, level, xp
+            unf_hiscore = content[1:24]
+            try:
+                hiscore = []
+                for n in range(len(unf_hiscore)):
+                    values = unf_hiscore[n].split(",")
+                    hiscore.append(
+                        {'level': int(values[1]), 'xp': (int(values[2]) * 10), 'rank': int(values[0]), 'id': n})
                 return hiscore
-        except:
-            return "Error: User not found"
-    return "Error: User not found"
+            except:
+                return "Error: User not found"
+        return "Error: User not found"
+    else:
+        if name:
+            start = time.time()
+            middle = ""
+            if game_mode == "ironman" or "hardcore_ironman":
+                middle = "_ironman"
+            elif game_mode == "ultimate_ironman":
+                middle = "_ultimate_ironman"
+            response = requests.get(
+                "http://services.runescape.com/m=hiscore_oldschool" + middle + "/index_lite.ws?player=" + str(name))
+            print("took: " + str(time.time() - start) + " seconds")
+            content = str(response.content)
+            content = content.split("\\n")
+            content[0] = content[0][2:]
+            # stored as rank, level, xp
+            unf_hiscore = content[1:24]
+            try:
+                hiscore = []
+                for n in range(len(unf_hiscore)):
+                    values = unf_hiscore[n].split(",")
+                    hiscore.append({'level': int(values[1]), 'xp': (int(values[2]) * 10), 'rank': int(values[0]), 'id': n})
+                return hiscore
+            except:
+                return "Error: User not found"
+        return "Error: User not found"
+
 
 
 # gets id of object, used in sorting the data into correct order
@@ -156,11 +263,12 @@ def remove_decimal_part(d, graph_data_type):
             d[graph_data_type] = 0
 
 
-def gen_level_graph(name, data, name2, data2, graph_data_type, graph_type):
+def gen_level_graph(name, data, name2, data2, graph_data_type, graph_type, game_type, game_mode):
     x = []
     y = []
     x2 = []
     y2 = []
+    success = False
     if name2 is None:
         if str(data) == "Error: User not found" or type(data) != list:
             # dont think we can return none here, think we need to return empty graph component
@@ -177,7 +285,9 @@ def gen_level_graph(name, data, name2, data2, graph_data_type, graph_type):
         if name:
             name = name.lower()
         data = [{'x': x, 'y': y, 'type': graph_type, 'name': name}]
+        success = True
     else:
+        # ToDo add error handling if user now found
         if str(data) == "Error: User not found" or str(data2) == "Error: User not found" or type(data) != list:
             # dont think we can return none here, think we need to return empty graph component
             x = [0]
@@ -195,15 +305,24 @@ def gen_level_graph(name, data, name2, data2, graph_data_type, graph_type):
                 remove_decimal_part(d2, graph_data_type)
                 x2.append(level_names[int(d2["id"])])
                 y2.append(d2[graph_data_type])
-            data = [{'x': x, 'y': y, 'type': graph_type, 'name': name}, {'x': x2, 'y': y2, 'type': graph_type, 'name': name2}]
+            # ToDo add other graph types
+            data = [{'x': x, 'y': y, 'type': graph_type, 'name': name},
+                    {'x': x2, 'y': y2, 'type': graph_type, 'name': name2}]
             # and concat the names into two
             if name and name2:
                 name = name.lower() + " vs " + name2.lower()
-    print(str(data))
+            success = True
+    # ToDo fix the fact that the different game modes show the same data (settled and swampletics)
+    if game_mode == "ironman":
+        game_mode == "Ironman"
+    elif game_mode == "ultimate_ironman":
+        game_mode = "Ultimate Ironman"
+    else:
+        game_mode = "Normal"
     figure = {
         'data': data,
         'layout': {
-            'title': 'Graph of ' + graph_data_type + ' for ' + str(name),
+            'title': 'Graph of ' + graph_data_type + ' for ' + str(name) + " (" + str(game_type).upper() + " - " + game_mode + ")",
             'plot_bgcolor': colors['background'],
             'paper_bgcolor': colors['background'],
             'font': {
@@ -211,8 +330,9 @@ def gen_level_graph(name, data, name2, data2, graph_data_type, graph_type):
             }
         }
     }
-    return figure
+    return figure, success
 
 
 if __name__ == "__main__":
+    # get_highscore('torvesta', 'osrs')
     app.run_server(debug=True)
