@@ -1,4 +1,6 @@
 import json
+from traceback import print_exc
+
 import pandas as pd
 import dash
 import dash_core_components as dcc
@@ -8,6 +10,11 @@ from dash.dependencies import Input, Output, State
 import time
 import dash_table
 from flask import jsonify
+
+# when we dont want to update an object i.e. graph
+# we can use dash.no_update
+# this allows for callbacks to return less values than they are supposed to
+# dash.no_update
 
 app = dash.Dash()
 app.title = "Unofficial RuneScape Hiscores"
@@ -127,7 +134,7 @@ app.layout = html.Div(style={'backgroundColor': colors['background']}, children=
             options=[
                 {'label': 'Normal', 'value': 'normal'},
                 {'label': 'Ironman', 'value': 'ironman'},
-                {'label': 'Ultimate Ironman', 'value': 'ultimate_ironman'}
+                {'label': 'Hardcore Ironman', 'value': 'hardcore_ironman'}
             ],
             value='normal',
             style={
@@ -154,7 +161,7 @@ app.layout = html.Div(style={'backgroundColor': colors['background']}, children=
                     }
                 }
             }
-        ),
+        )
         # ToDo add a table below displaying the players data
         # dash_table.DataTable(
         #     id='table',
@@ -174,24 +181,24 @@ app.layout = html.Div(style={'backgroundColor': colors['background']}, children=
     [State('name1', 'value'), State('name2', 'value'), State('data_type', 'value'), State('graph_type', 'value'),
      State('game_type', 'value'), State('game_mode', 'value')])
 def on_click(search_button, name1, name2, data_type, graph_type, game_type, game_mode):
-    graph_type = "table"
+    print(game_mode)
     score = get_highscore(name1, game_type, game_mode)
     if name2:
         score2 = get_highscore(name2, game_type, game_mode)
     else:
         score2 = None
     if not score2:
-        g, success = gen_level_graph(name1, score, None, None, data_type, graph_type, game_type, game_mode)
+        fig, success = gen_level_graph(name1, score, None, None, data_type, graph_type, game_type, game_mode)
         if success:
-            return g, {'display': 'block'}
+            return fig, {'display': 'block'}
         else:
-            return g, {'display': 'none'}
+            return fig, {'display': 'none'}
     elif score2:
-        g, success = gen_level_graph(name1, score, name2, score2, data_type, graph_type, game_type, game_mode)
+        fig, success = gen_level_graph(name1, score, name2, score2, data_type, graph_type, game_type, game_mode)
         if success:
-            return g, {'display':'block'}
+            return fig, {'display':'block'}
         else:
-            return g, {'display':'none'}
+            return fig, {'display':'none'}
     # instead of returning a div, we want to return a dcc.Graph
 
 
@@ -199,13 +206,12 @@ def get_highscore(name, game, game_mode):
     if game == "rs3":
         if name:
             start = time.time()
-            middle = ""
-            if game_mode == "ironman" or "hardcore_ironman":
-                middle = "_ironman"
-            elif game_mode == "ultimate_ironman":
-                middle = "_ultimate_ironman"
-            response = requests.get(
-                "http://services.runescape.com/m=hiscore" + middle + "/index_lite.ws?player=" + str(name))
+            url = "http://services.runescape.com/m=hiscore/index_lite.ws?player=" + str(name)
+            if game_mode == "ironman":
+                url = "http://services.runescape.com/m=hiscore_ironman/index_lite.ws?player=" + str(name)
+            elif game_mode == "hardcore_ironman":
+                url = "http://services.runescape.com/m=hiscore_hardcore_ironman/index_lite.ws?player=" + str(name)
+            response = requests.get(url)
             print("took: " + str(time.time() - start) + " seconds")
             content = str(response.content)
             content = content.split("\\n")
@@ -225,26 +231,32 @@ def get_highscore(name, game, game_mode):
     else:
         if name:
             start = time.time()
-            middle = ""
-            if game_mode == "ironman" or "hardcore_ironman":
-                middle = "_ironman"
-            elif game_mode == "ultimate_ironman":
-                middle = "_ultimate_ironman"
-            response = requests.get(
-                "http://services.runescape.com/m=hiscore_oldschool" + middle + "/index_lite.ws?player=" + str(name))
+            url = "http://services.runescape.com/m=hiscore_oldschool/index_lite.ws?player=" + str(name)
+            # url = "http://services.runescape.com/m=hiscore_oldschool/index_lite.ws?player=" + str(name)
+            if game_mode == "ironman" or game_mode == "hardcore_ironman":
+                url = "http://services.runescape.com/m=hiscore_oldschool_ironman/index_lite.ws?player=" + str(name)
+            # ToDo find a way to integrate ultimate ironmand (OSRS mode only) We could just add this to our error handling
+            # elif game_mode == "ultimate_ironman":
+            #     url = "http://services.runescape.com/m=hiscore_oldschool_ultimate/index_lite.ws?player=" + str(name)
+            print("Requesting: " + url)
+            response = requests.get(url)
+            # ToDo the error here is we are getting a 404 on the request
             print("took: " + str(time.time() - start) + " seconds")
             content = str(response.content)
+            print(content)
             content = content.split("\\n")
             content[0] = content[0][2:]
             # stored as rank, level, xp
             unf_hiscore = content[1:24]
+            print(unf_hiscore)
             try:
                 hiscore = []
-                for n in range(len(unf_hiscore)):
+                for n in range(len(unf_hiscore) - 1):
                     values = unf_hiscore[n].split(",")
                     hiscore.append({'level': int(values[1]), 'xp': (int(values[2]) * 10), 'rank': int(values[0]), 'id': n})
                 return hiscore
             except:
+                print_exc()
                 return "Error: User not found"
         return "Error: User not found"
 
@@ -288,6 +300,7 @@ def gen_level_graph(name, data, name2, data2, graph_data_type, graph_type, game_
         success = True
     else:
         # ToDo add error handling if user now found
+        # data is a string, so we need to say
         if str(data) == "Error: User not found" or str(data2) == "Error: User not found" or type(data) != list:
             # dont think we can return none here, think we need to return empty graph component
             x = [0]
@@ -312,7 +325,6 @@ def gen_level_graph(name, data, name2, data2, graph_data_type, graph_type, game_
             if name and name2:
                 name = name.lower() + " vs " + name2.lower()
             success = True
-    # ToDo fix the fact that the different game modes show the same data (settled and swampletics)
     if game_mode == "ironman":
         game_mode == "Ironman"
     elif game_mode == "ultimate_ironman":
